@@ -1,0 +1,111 @@
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
+import plotly.graph_objs as go
+import pandas as pd
+import numpy as np
+from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
+import seaborn as sns
+
+# Load and prepare data
+data = pd.read_csv(r"D:/Downloads/K-means-Clustering-for-customer-segmentations-main/K-means-Clustering-for-customer-segmentations-main/R implementations/Mall_Customers.csv")
+data['Gender'] = data['Gender'].map({'Male': 0, 'Female': 1})
+X = data[['Annual Income (k$)', 'Spending Score (1-100)']]
+
+# Perform clustering
+kmeans = KMeans(n_clusters=5, random_state=0).fit(X)
+agglomerative = AgglomerativeClustering(n_clusters=5).fit(X)
+dbscan = DBSCAN(eps=3, min_samples=5).fit(X)
+
+# Add cluster labels to data
+data['KMeans'] = kmeans.labels_
+data['Agglomerative'] = agglomerative.labels_
+data['DBSCAN'] = dbscan.labels_
+
+# Initialize Dash app
+app = dash.Dash(__name__, external_stylesheets=["https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"])
+
+app.layout = html.Div([
+    html.H1("Customer Segmentation Dashboard", style={'text-align': 'center'}),
+
+    # Dropdown for selecting clustering method
+    html.Div([
+        dcc.Dropdown(
+            id='cluster-method',
+            options=[
+                {'label': 'KMeans', 'value': 'KMeans'},
+                {'label': 'Agglomerative', 'value': 'Agglomerative'},
+                {'label': 'DBSCAN', 'value': 'DBSCAN'}
+            ],
+            value='KMeans',
+            clearable=False,
+            style={'width': '40%', 'margin': 'auto'}
+        ),
+    ], style={'text-align': 'center', 'margin-bottom': '20px'}),
+
+    # Scatter plot for clusters
+    dcc.Graph(id='cluster-scatter'),
+
+    # Elbow method visualization
+    html.Div([
+        html.H3("Elbow Method for Optimal K", style={'text-align': 'center'}),
+        dcc.Graph(id='elbow-plot')
+    ]),
+
+    # Histograms
+    html.Div([
+        html.Div(dcc.Graph(id='age-dist'), className="col-4"),
+        html.Div(dcc.Graph(id='income-dist'), className="col-4"),
+        html.Div(dcc.Graph(id='spending-score-dist'), className="col-4"),
+    ], className="row")
+])
+
+@app.callback(
+    Output('cluster-scatter', 'figure'),
+    Input('cluster-method', 'value')
+)
+def update_scatter(selected_method):
+    fig = px.scatter(
+        data,
+        x='Annual Income (k$)', y='Spending Score (1-100)',
+        color=selected_method,
+        title=f'{selected_method} Clustering'
+    )
+    fig.update_layout(legend_title="Cluster")
+    return fig
+
+@app.callback(
+    Output('elbow-plot', 'figure'),
+    Input('cluster-method', 'value')
+)
+def update_elbow(selected_method):
+    wcss = []
+    for i in range(1, 11):
+        kmeans = KMeans(n_clusters=i, random_state=0)
+        kmeans.fit(X)
+        wcss.append(kmeans.inertia_)
+    
+    elbow_fig = go.Figure()
+    elbow_fig.add_trace(go.Scatter(x=list(range(1, 11)), y=wcss, mode='lines+markers', name="WCSS"))
+    elbow_fig.update_layout(
+        title="Elbow Method to Find Optimal K",
+        xaxis=dict(title="Number of Clusters (K)"),
+        yaxis=dict(title="Within Cluster Sum of Squares (WCSS)")
+    )
+    return elbow_fig
+
+@app.callback(
+    Output('age-dist', 'figure'),
+    Output('income-dist', 'figure'),
+    Output('spending-score-dist', 'figure'),
+    Input('cluster-method', 'value')
+)
+def update_histograms(selected_method):
+    age_fig = px.histogram(data, x='Age', color=selected_method, title="Age Distribution")
+    income_fig = px.histogram(data, x='Annual Income (k$)', color=selected_method, title="Annual Income Distribution")
+    spending_score_fig = px.histogram(data, x='Spending Score (1-100)', color=selected_method, title="Spending Score Distribution")
+    return age_fig, income_fig, spending_score_fig
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
