@@ -1,0 +1,112 @@
+import dash
+from dash import dcc, html, Input, Output
+import dash_bootstrap_components as dbc
+import pandas as pd
+import numpy as np
+import plotly.express as px
+from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
+from sklearn.preprocessing import StandardScaler
+
+# Load and preprocess data
+data = pd.read_csv("D:/Downloads/K-means-Clustering-for-customer-segmentations-main/K-means-Clustering-for-customer-segmentations-main/R implementations/Mall_Customers.csv")
+X = data[["Annual Income (k$)", "Spending Score (1-100)"]]
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Initialize the app
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+app.layout = dbc.Container([
+    dbc.Row([html.H1("Customer Segmentation Dashboard", className="text-center mb-4")]),
+    
+    dbc.Row([
+        dbc.Col([
+            html.Label("Select Clustering Algorithm"),
+            dcc.Dropdown(
+                id="algorithm-dropdown",
+                options=[
+                    {"label": "KMeans", "value": "KMeans"},
+                    {"label": "Agglomerative Clustering", "value": "Agglomerative"},
+                    {"label": "DBSCAN", "value": "DBSCAN"}
+                ],
+                value="KMeans",
+                clearable=False
+            ),
+            html.Br(),
+            html.Label("Number of Clusters (KMeans & Agglomerative)"),
+            dcc.Slider(id="num-clusters", min=2, max=10, step=1, value=5),
+            html.Br(),
+            html.Label("DBSCAN Epsilon (Radius)"),
+            dcc.Slider(id="dbscan-epsilon", min=0.1, max=1.0, step=0.1, value=0.5),
+            html.Br(),
+            html.Label("DBSCAN Minimum Samples"),
+            dcc.Slider(id="dbscan-min-samples", min=2, max=10, step=1, value=5),
+        ], width=4),
+
+        dbc.Col([
+            dcc.Graph(id="clustering-graph"),
+            html.Div(id="cluster-details"),
+            html.Br(),
+            html.H5("Algorithm Justification", className="text-center mt-4"),
+            html.Div(id="algorithm-justification", style={"text-align": "justify"})
+        ], width=8),
+    ]),
+])
+
+# Callback to update graph, cluster details, and justification text
+@app.callback(
+    Output("clustering-graph", "figure"),
+    Output("cluster-details", "children"),
+    Output("algorithm-justification", "children"),
+    Input("algorithm-dropdown", "value"),
+    Input("num-clusters", "value"),
+    Input("dbscan-epsilon", "value"),
+    Input("dbscan-min-samples", "value")
+)
+def update_graph_and_justification(algorithm, num_clusters, dbscan_epsilon, dbscan_min_samples):
+    # Run clustering
+    if algorithm == "KMeans":
+        model = KMeans(n_clusters=num_clusters, random_state=42)
+        labels = model.fit_predict(X_scaled)
+        title = f"KMeans Clustering (K={num_clusters})"
+        justification = (
+            "KMeans clustering is ideal for well-separated, spherical clusters. "
+            "It minimizes within-cluster variance, making it fast and efficient for large datasets. "
+            "However, it assumes clusters are of similar size and shape, so it may struggle with complex or varied clusters."
+        )
+    elif algorithm == "Agglomerative":
+        model = AgglomerativeClustering(n_clusters=num_clusters)
+        labels = model.fit_predict(X_scaled)
+        title = f"Agglomerative Clustering (K={num_clusters})"
+        justification = (
+            "Agglomerative clustering is hierarchical and can form clusters of arbitrary shapes, making it versatile. "
+            "It does not require selecting an initial cluster center, but can be computationally expensive for large datasets. "
+            "Best used when the number of clusters is known and the data has a clear hierarchical structure."
+        )
+    elif algorithm == "DBSCAN":
+        model = DBSCAN(eps=dbscan_epsilon, min_samples=dbscan_min_samples)
+        labels = model.fit_predict(X_scaled)
+        title = f"DBSCAN Clustering (ε={dbscan_epsilon}, min_samples={dbscan_min_samples})"
+        justification = (
+            "DBSCAN is suitable for identifying clusters of varying densities, especially for datasets with noise. "
+            "It does not require a predefined number of clusters, and can identify outliers effectively. "
+            "However, it is highly sensitive to ε and min_samples parameters, and may struggle with high-dimensional data."
+        )
+
+    # Add labels to dataframe
+    data['Cluster'] = labels
+    fig = px.scatter(data, x="Annual Income (k$)", y="Spending Score (1-100)", color="Cluster",
+                     title=title, color_continuous_scale="Viridis")
+
+    # Cluster details
+    num_clusters_found = len(set(labels)) - (1 if -1 in labels else 0)  # Exclude noise points in DBSCAN
+    cluster_counts = data['Cluster'].value_counts().sort_index()
+    cluster_info = [
+        html.H5(f"Number of Clusters: {num_clusters_found}"),
+        html.P(f"Cluster Counts: {cluster_counts.to_dict()}")
+    ]
+
+    return fig, cluster_info, justification
+
+if __name__ == "__main__":
+    app.run_server(debug=True)
